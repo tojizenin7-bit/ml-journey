@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+
+
+  Chart.js is loaded from a CDN (Content Delivery Network) —
+  a server that hosts popular libraries for free. No install needed.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifeLog Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js: a popular JavaScript charting library -->
+  <style>
+    /* CSS Variables — define colors once, use everywhere */
+    :root {
+      --bg:       #0f1117;
+      --card:     #1a1d27;
+      --accent:   #7c6ff7;
+      --accent2:  #4fc3a1;
+      --text:     #e2e8f0;
+      --muted:    #8892a4;
+      --border:   #2d3244;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* box-sizing: border-box → padding is included in element width (much saner) */
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 { font-size: 1.8rem; font-weight: 600; }
+    h2 { font-size: 1.1rem; color: var(--muted); font-weight: 400; margin-bottom: 1rem; }
+
+    /* CSS Grid — modern way to create multi-column layouts */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      /* auto-fit + minmax: creates as many columns as fit, each at least 180px wide.
+         This makes the layout automatically responsive! */
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.2rem;
+      text-align: center;
+    }
+
+    .stat-card .value {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-card .label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.3rem;
+    }
+
+    /* CSS Grid for charts — 2 columns */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      /* Media query: on small screens (phones), switch to 1 column */
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+
+    /* canvas is the HTML element Chart.js draws on */
+    canvas { max-height: 280px; }
+
+    .habit-list { list-style: none; }
+
+    .habit-list li {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .habit-name { flex: 1; font-size: 0.9rem; }
+
+    .progress-bar {
+      flex: 2;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      /* CSS custom property on the element, set by Jinja2 below */
+      width: var(--pct);
+      transition: width 0.8s ease;
+      /* transition: animate property changes smoothly */
+    }
+
+    .habit-rate { font-size: 0.85rem; color: var(--accent); min-width: 40px; text-align: right; }
+    .streak     { font-size: 0.8rem;  color: var(--muted);  min-width: 70px; text-align: right; }
+
+    .word-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding-top: 0.5rem;
+    }
+
+    .word-tag {
+      background: var(--border);
+      border-radius: 20px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>📊 LifeLog</h1>
+      <p style="color: var(--muted); font-size: 0.9rem;">Your personal intelligence dashboard</p>
+    </div>
+    <div style="text-align: right; color: var(--muted); font-size: 0.85rem;">
+      <div>{{ total_entries }} entries logged</div>
+      <div>Trend: <span style="color: var(--accent2)">{{ trend }}</span></div>
+    </div>
+  </header>
+
+  <!-- Jinja2 Variables: {{ variable }} inserts the Python value here -->
+  <!-- Stat Cards -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="value">{{ avg_mood }}</div>
+      <div class="label">Average Mood</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">{{ total_entries }}</div>
+      <div class="label">Days Logged</div>
+    </div>
+    <div class="stat-card">
+      <div class="value" style="color: var(--accent2)">{{ trend }}</div>
+      <div class="label">Mood Trend</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">{{ habit_stats | length }}</div>
+      <div class="label">Habits Tracked</div>
+      <!-- | length is a Jinja2 filter — like Python's len() -->
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="charts-grid">
+
+    <div class="chart-card">
+      <h2>Mood & Energy (Last 30 Days)</h2>
+      <!-- Chart.js draws onto a <canvas> element -->
+      <canvas id="moodChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h2>Habit Completion Rates</h2>
+      <canvas id="habitChart"></canvas>
+    </div>
+
+  </div>
+
+  <!-- Habits Detail -->
+  <div class="chart-card" style="margin-bottom: 1.5rem;">
+    <h2>Habit Streaks & Rates</h2>
+    <ul class="habit-list">
+
+      {# Jinja2 for loop — iterates over habit_stats dict #}
+      {% for habit, stats in habit_stats.items() %}
+      <li>
+        <span class="habit-name">{{ habit }}</span>
+        <div class="progress-bar">
+          <!-- CSS custom property --pct is set per element from Jinja2 -->
+          <div class="progress-fill" style="--pct: {{ stats.rate }}%"></div>
+        </div>
+        <span class="habit-rate">{{ stats.rate }}%</span>
+        <span class="streak">🔥 {{ stats.streak }}d</span>
+      </li>
+      {% else %}
+        <li style="color: var(--muted)">No habits logged yet.</li>
+      {% endfor %}
+      {# {% else %} in Jinja2 for loops: runs if the list is empty #}
+
+    </ul>
+  </div>
+
+  <!-- Word Cloud -->
+  <div class="chart-card">
+    <h2>Top Words in Your Notes</h2>
+    <div class="word-cloud" id="wordCloud">
+      <span style="color: var(--muted)">Loading...</span>
+    </div>
+  </div>
+
+  <!-- JavaScript: fetches data from our Flask API and draws charts -->
+  <script>
+    // ---- Helper: fetch JSON from a Flask API endpoint ----
+    // async/await makes asynchronous code (that waits for responses) readable.
+    // Without async/await, you'd need deeply nested callbacks ("callback hell").
+    async function fetchJSON(url) {
+      const response = await fetch(url);
+      // fetch() returns a Promise — a value that will arrive in the future.
+      // 'await' pauses execution here until the Promise resolves.
+      return await response.json();
+      // .json() parses the JSON string into a JavaScript object.
+    }
+
+    // ---- Draw Mood + Energy line chart ----
+    async function drawMoodChart() {
+      const data = await fetchJSON("/api/mood-chart");
+      // data is now a JS object: { labels: [...], mood: [...], energy: [...] }
+
+      const ctx = document.getElementById("moodChart").getContext("2d");
+      // getContext("2d") gets the canvas drawing context.
+
+      new Chart(ctx, {
+        type: "line",    // line chart
+        data: {
+          labels: data.labels,   // x-axis labels (dates)
+          datasets: [
+            {
+              label:           "Mood",
+              data:            data.mood,
+              borderColor:     "#7c6ff7",
+              backgroundColor: "rgba(124, 111, 247, 0.1)",
+              fill:            true,   // fills area under the line
+              tension:         0.4,    // curved lines (0 = straight)
+            },
+            {
+              label:           "Energy",
+              data:            data.energy,
+              borderColor:     "#4fc3a1",
+              backgroundColor: "rgba(79, 195, 161, 0.1)",
+              fill:            true,
+              tension:         0.4,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: { min: 1, max: 10, ticks: { color: "#8892a4" }, grid: { color: "#2d3244" } },
+            x: { ticks: { color: "#8892a4", maxTicksLimit: 8 }, grid: { color: "#2d3244" } }
+          },
+          plugins: {
+            legend: { labels: { color: "#e2e8f0" } }
+          }
+        }
+      });
+    }
+
+    // ---- Draw Habits horizontal bar chart ----
+    async function drawHabitChart() {
+      const data = await fetchJSON("/api/habit-chart");
+
+      const ctx = document.getElementById("habitChart").getContext("2d");
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels:   data.labels,
+          datasets: [{
+            label:           "Completion %",
+            data:            data.rates,
+            backgroundColor: "rgba(124, 111, 247, 0.6)",
+            borderColor:     "#7c6ff7",
+            borderWidth:     1,
+          }]
+        },
+        options: {
+          indexAxis: "y",   // horizontal bar chart
+          responsive: true,
+          scales: {
+            x: { min: 0, max: 100, ticks: { color: "#8892a4" }, grid: { color: "#2d3244" } },
+            y: { ticks: { color: "#8892a4" }, grid: { color: "#2d3244" } }
+          },
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+    }
+
+    // ---- Populate word cloud from API ----
+    async function drawWordCloud() {
+      const words = await fetchJSON("/api/word-cloud");
+      const container = document.getElementById("wordCloud");
+      container.innerHTML = "";   // Clear the "Loading..." placeholder
+
+      if (words.length === 0) {
+        container.innerHTML = '<span style="color:#8892a4">No notes yet.</span>';
+        return;
+      }
+
+      // Find the highest count so we can scale font sizes proportionally.
+      const maxCount = Math.max(...words.map(w => w.count));
+      // Math.max(...array) → spread array as individual arguments to max()
+
+      words.forEach(({ word, count }) => {
+        // Object destructuring: { word, count } = item → extracts both properties
+        const size = 0.8 + (count / maxCount) * 1.2;   // scale: 0.8rem → 2rem
+        const tag  = document.createElement("span");
+        tag.className   = "word-tag";
+        tag.textContent = word;
+        tag.style.fontSize = `${size}rem`;
+        container.appendChild(tag);
+      });
+    }
+
+    
+    
+    drawMoodChart();
+    drawHabitChart();
+    drawWordCloud();
+  </script>
+
+</body>
+</html>
